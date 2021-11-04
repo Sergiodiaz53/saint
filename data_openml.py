@@ -39,6 +39,125 @@ def data_split(X,y,nan_mask,indices):
     } 
     return x_d, y_d
 
+def data_prep_CBC(seed, task, datasplit=[.65, .15, .2]):
+
+    np.random.seed(seed)
+
+    #Load data
+    CBC_file_dir = "data/ProcessedData-2021-Filtrados.csv"
+    CBC = pd.read_csv(CBC_file_dir, error_bad_lines=True)
+
+    CBC = CBC[CBC['Clase'] != 2]
+    CBC['Clase'] = CBC['Clase'].replace(to_replace = 3, value = 2) 
+    CBC['Clase'] = CBC['Clase'].replace(to_replace = 4, value = 2)
+
+    healthy = CBC.loc[CBC['Clase'] == 0]
+    thalassemias = CBC.loc[CBC['Clase'] == 1]
+    anemias = CBC.loc[CBC['Clase'] == 2]
+    CBC = pd.concat([healthy,thalassemias, anemias])
+
+    y = CBC['Clase']
+
+    CBC = CBC.drop('Clase', axis=1)
+    CBC = CBC.drop('TipoClase', axis=1)
+    
+    X = CBC
+
+    categorical_indicator = []
+    for i in range(0, len(X.iloc[0])): categorical_indicator.append(False)
+
+    categorical_columns = X.columns[list(np.where(np.array(categorical_indicator)==True)[0])].tolist()
+    cont_columns = list(set(X.columns.tolist()) - set(categorical_columns))
+
+    CBC.reset_index(drop=True, inplace=True)
+
+    cat_idxs = list(np.where(np.array(categorical_indicator)==True)[0])
+    con_idxs = list(set(range(len(X.columns))) - set(cat_idxs))
+
+    for col in categorical_columns:
+        X[col] = X[col].astype("object")
+
+    X["Set"] = np.random.choice(["train", "valid", "test"], p = datasplit, size=(X.shape[0],))
+    
+    train_indices = X[X.Set=="train"].index
+    valid_indices = X[X.Set=="valid"].index
+    test_indices = X[X.Set=="test"].index
+
+    X = X.drop(columns=['Set'])
+    temp = X.fillna("MissingValue")
+    nan_mask = temp.ne("MissingValue").astype(int)
+
+    cat_dims = []
+    for col in categorical_columns:
+    #     X[col] = X[col].cat.add_categories("MissingValue")
+        X[col] = X[col].fillna("MissingValue")
+        l_enc = LabelEncoder() 
+        X[col] = l_enc.fit_transform(X[col].values)
+        cat_dims.append(len(l_enc.classes_))
+    for col in cont_columns:
+    #     X[col].fillna("MissingValue",inplace=True)
+        X.fillna(X.loc[train_indices, col].mean(), inplace=True)
+    y = y.values
+
+    X_train, y_train = data_split(X,y,nan_mask,train_indices)
+    X_valid, y_valid = data_split(X,y,nan_mask,valid_indices)
+    X_test, y_test = data_split(X,y,nan_mask,test_indices)
+
+    train_mean, train_std = np.array(X_train['data'][:,con_idxs],dtype=np.float32).mean(0), np.array(X_train['data'][:,con_idxs],dtype=np.float32).std(0)
+    train_std = np.where(train_std < 1e-6, 1e-6, train_std)
+    return cat_dims, cat_idxs, con_idxs, X_train, y_train, X_valid, y_valid, X_test, y_test, train_mean, train_std
+
+def data_prep_FV(seed, task, datasplit=[.65, .15, .2]):
+    np.random.seed(seed)
+    X = np.load("data/freqvectors_hotspots-3k-polys-500chunk_with_reversed.npy")
+    X = np.delete(X, np.s_[512:1024], axis=1)
+    X = pd.DataFrame(data=X)
+
+    y = np.load("data/labels_hotspots-3k-list-500chunk_with_reversed.npy")
+    y = pd.DataFrame(data=y)
+
+    categorical_indicator = []
+    for i in range(0, len(X.iloc[0])): categorical_indicator.append(False)
+
+    categorical_columns = X.columns[list(np.where(np.array(categorical_indicator)==True)[0])].tolist()
+    cont_columns = list(set(X.columns.tolist()) - set(categorical_columns))
+
+    cat_idxs = list(np.where(np.array(categorical_indicator)==True)[0])
+    con_idxs = list(set(range(len(X.columns))) - set(cat_idxs))
+
+    for col in categorical_columns:
+        X[col] = X[col].astype("object")
+
+    X["Set"] = np.random.choice(["train", "valid", "test"], p = datasplit, size=(X.shape[0],))
+    
+    train_indices = X[X.Set=="train"].index
+    valid_indices = X[X.Set=="valid"].index
+    test_indices = X[X.Set=="test"].index
+
+    X = X.drop(columns=['Set'])
+    temp = X.fillna("MissingValue")
+    nan_mask = temp.ne("MissingValue").astype(int)
+
+    cat_dims = []
+    for col in categorical_columns:
+    #     X[col] = X[col].cat.add_categories("MissingValue")
+        X[col] = X[col].fillna("MissingValue")
+        l_enc = LabelEncoder() 
+        X[col] = l_enc.fit_transform(X[col].values)
+        cat_dims.append(len(l_enc.classes_))
+    for col in cont_columns:
+    #     X[col].fillna("MissingValue",inplace=True)
+        X.fillna(X.loc[train_indices, col].mean(), inplace=True)
+    y = y.values
+
+    X_train, y_train = data_split(X,y,nan_mask,train_indices)
+    X_valid, y_valid = data_split(X,y,nan_mask,valid_indices)
+    X_test, y_test = data_split(X,y,nan_mask,test_indices)
+
+    train_mean, train_std = np.array(X_train['data'][:,con_idxs],dtype=np.float32).mean(0), np.array(X_train['data'][:,con_idxs],dtype=np.float32).std(0)
+    train_std = np.where(train_std < 1e-6, 1e-6, train_std)
+
+    return cat_dims, cat_idxs, con_idxs, X_train, y_train, X_valid, y_valid, X_test, y_test, train_mean, train_std
 
 def data_prep_openml(ds_id, seed, task, datasplit=[.65, .15, .2]):
     
@@ -46,6 +165,8 @@ def data_prep_openml(ds_id, seed, task, datasplit=[.65, .15, .2]):
     dataset = openml.datasets.get_dataset(ds_id)
     
     X, y, categorical_indicator, attribute_names = dataset.get_data(dataset_format="dataframe", target=dataset.default_target_attribute)
+
+
     if ds_id == 42178:
         categorical_indicator = [True, False, True,True,False,True,True,True,True,True,True,True,True,True,True,True,True,False, False]
         tmp = [x if (x != ' ') else '0' for x in X['TotalCharges'].tolist()]
@@ -58,6 +179,8 @@ def data_prep_openml(ds_id, seed, task, datasplit=[.65, .15, .2]):
         # import ipdb; ipdb.set_trace()
         X, y = X[:50000], y[:50000]
         X.reset_index(drop=True, inplace=True)
+
+
     categorical_columns = X.columns[list(np.where(np.array(categorical_indicator)==True)[0])].tolist()
     cont_columns = list(set(X.columns.tolist()) - set(categorical_columns))
 
